@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"time"
 	"strings"
+	"bytes"
+	"strconv"
 )
 
 var e *uci.Engine
@@ -118,10 +120,11 @@ func foo(w http.ResponseWriter, r *http.Request) {
 	// For all responses
 	j.Version = "1.0"
 	j.Response.ShouldEndSession = true
-	if l.Request.Type == "LaunchRequest"{ //"Run Chess"
-	    j = startSession(l)
-	} else {
-	    j = continueSession(l)
+	switch l.Request.Type{
+	    case "LaunchRequest": //"Run Chess"
+		j = startSession(l)
+	    case "IntentRequest":
+		j = continueSession(l)
 	}
 	b, _ := json.Marshal(j)
 	fmt.Println(string(b[:]))
@@ -142,10 +145,22 @@ func continueSession(l RequestMaster)(j ResponseMaster){
 		a.Previous="Difficulty"
 		Accounts[userid] = a
 	    } else if Accounts[userid].Previous=="ContinueGame"{
+		move := a.Board.LastMove
+		from := move.From.String()
+		to := move.To.String()
+		k.Text = "Please state your next move. The last move was from " + from + " to " + to + "."
+		m := createCard(a.Board)
+		j.Response.Card = &m
 	    }
+	case "NewGame":
+		k.Text = "Please pick a difficulty level between 0 and 20."
+		a.Previous="Difficulty"
+		Accounts[userid] = a
 	case "No":
 	    a.Previous="Goodbye"
 	    k.Text = "Goodbye"
+	    m := createCard(a.Board)
+	    j.Response.Card = &m
 	    j.Response.ShouldEndSession = true
 	case "Difficulty":
 	    diffValue := l.Request.Intent.Slots["Diff"].Value
@@ -154,11 +169,41 @@ func continueSession(l RequestMaster)(j ResponseMaster){
 	    k.Text="Created a new game with difficulty " + diffValue + ". Your move!"
 	case "Move":
 	    k.Text = chessMove(userid, l.Request.Intent.Slots["LocOne"].Value, l.Request.Intent.Slots["LocTwo"].Value)
-
 	}
 	j.Response.OutputSpeech = &k
 	return j
 }
+func createCard(g Game)(c Card){
+    var buf bytes.Buffer
+    move := g.LastMove
+    from := move.From.String()
+    to := move.To.String()
+
+    c.Title = "State of board after " + from + " to " + to + "."
+    c.Type = "Simple"
+    board, err := chess.ParseFen(g.Fen)
+    if err != nil {
+	fmt.Println(err)
+    }
+    buf.WriteString("1")
+    for i, v := range board.Piece{
+	if i%8 == 0 && i!=0{
+	    num := i/8
+	    buf.WriteString( strconv.Itoa(num) + "\n" + strconv.Itoa(num+1))
+	}
+	if chess.Figurines[v] == '.'{
+	    buf.WriteRune(0x2610)
+    } else {
+	buf.WriteRune(chess.Figurines[v])
+    }
+
+    }
+    buf.WriteString("8")
+    c.Content = buf.String()
+    return c
+}
+
+
 
 func startSession(l RequestMaster)(j ResponseMaster){
 	var k OutputSpeech
